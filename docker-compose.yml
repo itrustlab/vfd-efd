@@ -1,0 +1,118 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    container_name: vfd-postgres
+    image: postgres:13-alpine
+    restart: always
+    environment:
+      POSTGRES_DB: vfd_db
+      POSTGRES_USER: vfd_user
+      POSTGRES_PASSWORD: vfd_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./src/main/resources/db/migration:/docker-entrypoint-initdb.d
+    networks:
+      - vfd-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vfd_user -d vfd_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # VFD Microservice
+  vfd-service:
+    container_name: vfd-service
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: always
+    ports:
+      - "8085:8085"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/vfd_db
+      - SPRING_DATASOURCE_USERNAME=vfd_user
+      - SPRING_DATASOURCE_PASSWORD=vfd_password
+      - SPRING_JPA_HIBERNATE_DDL_AUTO=validate
+      - SPRING_JPA_SHOW_SQL=true
+      - SPRING_JPA_PROPERTIES_HIBERNATE_DIALECT=org.hibernate.dialect.PostgreSQLDialect
+      - SPRING_FLYWAY_ENABLED=true
+      - SPRING_FLYWAY_LOCATIONS=classpath:db/migration
+      - SPRING_FLYWAY_BASELINE_ON_MIGRATE=true
+      - LOGGING_LEVEL_TZ_CO_ITRUST_VFD=DEBUG
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - vfd-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8085/vfd/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Redis Cache (Optional - for session management and caching)
+  redis:
+    container_name: vfd-redis
+    image: redis:6-alpine
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - vfd-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # pgAdmin (Optional - for database management)
+  pgadmin:
+    container_name: vfd-pgadmin
+    image: dpage/pgadmin4:latest
+    restart: always
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@vfd.local
+      PGADMIN_DEFAULT_PASSWORD: admin123
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      - postgres
+    networks:
+      - vfd-network
+
+  # API Documentation (Optional - Swagger UI)
+  swagger-ui:
+    container_name: vfd-swagger-ui
+    image: swaggerapi/swagger-ui:latest
+    restart: always
+    ports:
+      - "8080:8080"
+    environment:
+      SWAGGER_JSON: /vfd-api-docs.json
+    volumes:
+      - ./swagger:/usr/share/nginx/html
+    networks:
+      - vfd-network
+
+networks:
+  vfd-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  pgadmin_data:
+    driver: local
