@@ -250,7 +250,7 @@ public class VfdReconciliationService {
      */
     private boolean hasReconciliationRestrictions(VfdReconciliationResponse reconciliation) {
         if (reconciliation == null) {
-            return false;
+        return false;
         }
         
         try {
@@ -1355,9 +1355,9 @@ public class VfdReconciliationService {
         try {
             // In a real implementation, this would use Jackson ObjectMapper or Gson
             // For now, implement enhanced JSON parsing simulation
-            
-            Map<String, Object> parsedMetadata = new HashMap<>();
-            
+                
+                Map<String, Object> parsedMetadata = new HashMap<>();
+                
             // Business rule: Check for valid JSON structure
             if (metadata.startsWith("{") && metadata.endsWith("}")) {
                 // Simulate JSON parsing by extracting key-value pairs
@@ -1407,30 +1407,30 @@ public class VfdReconciliationService {
             Map<String, Object> parsedMetadata = new HashMap<>();
             
             // Business rule: Check for common metadata patterns
-            if (metadata.contains("customerId")) {
-                parsedMetadata.put("hasCustomerId", true);
-            }
-            
-            if (metadata.contains("transactionId")) {
-                parsedMetadata.put("hasTransactionId", true);
-            }
-            
-            if (metadata.contains("amount")) {
-                parsedMetadata.put("hasAmount", true);
-            }
-            
-            if (metadata.contains("timestamp")) {
-                parsedMetadata.put("hasTimestamp", true);
-            }
-            
-            // Business rule: Add parsing metadata
-            parsedMetadata.put("parsedAt", LocalDateTime.now());
+                if (metadata.contains("customerId")) {
+                    parsedMetadata.put("hasCustomerId", true);
+                }
+                
+                if (metadata.contains("transactionId")) {
+                    parsedMetadata.put("hasTransactionId", true);
+                }
+                
+                if (metadata.contains("amount")) {
+                    parsedMetadata.put("hasAmount", true);
+                }
+                
+                if (metadata.contains("timestamp")) {
+                    parsedMetadata.put("hasTimestamp", true);
+                }
+                
+                // Business rule: Add parsing metadata
+                parsedMetadata.put("parsedAt", LocalDateTime.now());
             parsedMetadata.put("parseStatus", "PATTERN_BASED");
-            parsedMetadata.put("originalLength", metadata.length());
+                parsedMetadata.put("originalLength", metadata.length());
             parsedMetadata.put("parseMethod", "PATTERN_MATCHING");
-            
-            return parsedMetadata;
-            
+                
+                return parsedMetadata;
+                
         } catch (Exception e) {
             log.warn("Error parsing metadata by patterns: {}", e.getMessage());
             return new HashMap<>();
@@ -1441,15 +1441,15 @@ public class VfdReconciliationService {
      * Create fallback metadata when parsing fails
      */
     private Map<String, Object> createFallbackMetadata(String metadata, String errorMessage) {
-        Map<String, Object> fallbackMetadata = new HashMap<>();
-        fallbackMetadata.put("rawMetadata", metadata);
-        fallbackMetadata.put("parseStatus", "FAILED");
+                Map<String, Object> fallbackMetadata = new HashMap<>();
+                fallbackMetadata.put("rawMetadata", metadata);
+                fallbackMetadata.put("parseStatus", "FAILED");
         fallbackMetadata.put("parseError", errorMessage);
-        fallbackMetadata.put("parsedAt", LocalDateTime.now());
+                fallbackMetadata.put("parsedAt", LocalDateTime.now());
         fallbackMetadata.put("parseMethod", "FALLBACK");
-        
-        return fallbackMetadata;
-    }
+                
+                return fallbackMetadata;
+            }
     
     /**
      * Validate broker-customer relationship for reconciliation access
