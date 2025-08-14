@@ -49,7 +49,7 @@ public class VfdService {
             // Store receipt asynchronously after returning response
             try {
                 storeReceipt(request, vfdResponse);
-            } catch (Exception e) {
+                } catch (Exception e) {
                 log.error("Error storing receipt to database: {}", e.getMessage(), e);
                 // Don't fail the request if storage fails
             }
@@ -68,16 +68,20 @@ public class VfdService {
 
     private VfdReceiptResponse forwardToPowerVfd(VfdReceiptRequest request) {
         if (!vfdEnabled) {
-            log.warn("VFD is disabled, returning mock response");
-            return createMockResponse(request);
+            log.warn("VFD is disabled, returning error response");
+            return VfdReceiptResponse.builder()
+                    .status("error")
+                    .errorMessage("VFD service is currently disabled")
+                    .statusCode(503)
+                    .statusCodeText("Service Unavailable")
+                    .build();
         }
-
+        
         try {
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
 
-            // Try different authentication formats
-            Object transformedRequest = tryDifferentAuthFormats(request);
+            Object transformedRequest = transformRequestToExternalFormat(request);
 
             HttpEntity<Object> entity = new HttpEntity<>(transformedRequest, headers);
 
@@ -89,37 +93,41 @@ public class VfdService {
 
             log.info("Power-VFD response: {}", response.getBody());
             return response.getBody();
-
+            
         } catch (Exception e) {
             log.error("Error forwarding to Power-VFD: {}", e.getMessage(), e);
             
-            if (e.getMessage().contains("Connection timed out") || 
+            // For connection-related errors, return a proper error response
+            if (e.getMessage() != null && (
+                e.getMessage().contains("Connection timed out") || 
                 e.getMessage().contains("timeout") ||
-                e.getMessage().contains("ConnectException")) {
-                log.warn("External VFD system is unreachable, returning mock response");
-                return createMockResponse(request);
+                e.getMessage().contains("ConnectException") ||
+                e.getMessage().contains("Connection refused") ||
+                e.getMessage().contains("I/O error") ||
+                e.getMessage().contains("ResourceAccessException"))) {
+                log.warn("External VFD system is unreachable, returning connection error response");
+                return VfdReceiptResponse.builder()
+                        .status("error")
+                        .errorMessage("External VFD system is unreachable: " + e.getMessage())
+                        .statusCode(503)
+                        .statusCodeText("Service Unavailable")
+                        .build();
             }
             
-            throw new RuntimeException("Failed to forward to Power-VFD system", e);
+            // For other errors, return an error response
+            log.error("Unexpected error from Power-VFD, returning error response");
+            return VfdReceiptResponse.builder()
+                    .status("error")
+                    .errorMessage("Power-VFD system error: " + e.getMessage())
+                    .statusCode(500)
+                    .statusCodeText("Power-VFD Error")
+                    .build();
         }
     }
 
-    private Object tryDifferentAuthFormats(VfdReceiptRequest request) {
-        // Try different authentication formats to see which one works
-        
-        // Format 1: fcode and fcodetoken as query parameters
-        String urlWithParams = powerVfdUrl + "?fcode=" + fcode + "&fcodetoken=" + fcodetoken;
-        log.info("Trying URL with query parameters: {}", urlWithParams);
-        
-        // Format 2: fcode and fcodetoken in headers
-        HttpHeaders headers = new HttpHeaders();
-        headers.set("fcode", fcode);
-        headers.set("fcodetoken", fcodetoken);
-        
-        // Format 3: fcode and fcodetoken in request body (current approach)
+    private Object transformRequestToExternalFormat(VfdReceiptRequest request) {
+        // Transform to match the exact payload format specified by user
         Map<String, Object> requestBody = new HashMap<>();
-        requestBody.put("fcode", fcode);
-        requestBody.put("fcodetoken", fcodetoken);
         
         Map<String, Object> invoice = new HashMap<>();
         invoice.put("idate", request.getIdate());
@@ -128,19 +136,21 @@ public class VfdService {
         invoice.put("custidtype", String.valueOf(request.getCustidtype()));
         invoice.put("custid", request.getCustid() != null ? request.getCustid() : "");
         invoice.put("custname", request.getCustname() != null ? request.getCustname() : "");
-        invoice.put("mobilenum", request.getMobilenum() != null ? request.getMobilenum() : "");
         invoice.put("username", request.getUsername() != null ? request.getUsername() : "");
         invoice.put("branch", request.getBranch() != null ? request.getBranch() : "");
         invoice.put("department", request.getDepartment() != null ? request.getDepartment() : "");
-        invoice.put("devicenumber", request.getDevicenumber() != null ? request.getDevicenumber() : "");
+        invoice.put("device_number", request.getDevicenumber() != null ? request.getDevicenumber() : "");
         invoice.put("paytype", String.valueOf(request.getPaytype()));
+        // Include fcode and fcodetoken within each invoice object as specified
+        invoice.put("fcode", fcode);
+        invoice.put("fcodetoken", fcodetoken);
 
         List<Map<String, Object>> invoiceDetails = request.getInvoiceDetails().stream()
                 .map(detail -> {
                     Map<String, Object> detailMap = new HashMap<>();
                     detailMap.put("description", detail.getDescription());
-                    detailMap.put("qty", String.valueOf(detail.getQty()));
-                    detailMap.put("taxcode", String.valueOf(detail.getTaxcode()));
+                    detailMap.put("qty", detail.getQty());
+                    detailMap.put("taxcode", detail.getTaxcode());
                     detailMap.put("amt", detail.getAmt());
                     return detailMap;
                 })
@@ -195,7 +205,7 @@ public class VfdService {
             VfdReceipt savedReceipt = receiptRepository.save(receipt);
             log.info("Receipt saved with ID: {}", savedReceipt.getId());
             return savedReceipt;
-
+            
         } catch (Exception e) {
             log.error("Error storing receipt: {}", e.getMessage(), e);
             throw new RuntimeException("Failed to store receipt", e);
@@ -216,20 +226,5 @@ public class VfdService {
         }
     }
 
-    private VfdReceiptResponse createMockResponse(VfdReceiptRequest request) {
-        return VfdReceiptResponse.builder()
-                .status("success")
-                .message("Mock response - VFD is disabled")
-                .rctvnum("http://localhost:8085/vfd/receipt/verify/MOCK123")
-                .rctvcode("MOCK123")
-                .znumber("Z123456789")
-                .vfdinvoicenum("VFD" + System.currentTimeMillis())
-                .idate(request.getIdate())
-                .itime(request.getItime())
-                .senttime(LocalDateTime.now().toString())
-                .qrpath("/qr/mock-qr.png")
-                .statusCode(200)
-                .statusCodeText("OK")
-                .build();
-    }
+
 } 

@@ -20,7 +20,7 @@ public class VfdReceiptRequest {
     private String idate;
 
     @NotNull(message = "Invoice time is required")
-    @Pattern(regexp = "\\d{2}:\\d{2}", message = "Time must be in HH:MM format")
+    @Pattern(regexp = "\\d{2}:\\d{2}(:\\d{2})?", message = "Time must be in HH:MM or HH:MM:SS format")
     private String itime;
 
     @NotBlank(message = "Customer invoice number is required")
@@ -53,6 +53,10 @@ public class VfdReceiptRequest {
     @NotNull(message = "Invoice details are required")
     @Size(min = 1, message = "At least one invoice detail is required")
     private List<VfdInvoiceDetail> invoiceDetails;
+
+    // Optional fcode and fcodetoken - if not provided, will use configured values from properties
+    private String fcode;
+    private String fcodetoken;
 
     @Data
     @NoArgsConstructor
