@@ -77,6 +77,52 @@ public class VfdReceipt {
     @Column(name = "receipt_number", length = 255)
     private String receiptNumber;
 
+    // New VFD response fields
+    @Column(name = "rctvnum", length = 500)
+    private String rctvnum;
+
+    @Column(name = "rctvcode", length = 100)
+    private String rctvcode;
+
+    @Column(name = "znumber", length = 100)
+    private String znumber;
+
+    @Column(name = "qrpath", length = 500)
+    private String qrpath;
+
+    @Column(name = "qrcode_uri", columnDefinition = "LONGTEXT")
+    private String qrcodeUri;
+
+    @Column(name = "status_code_text", length = 100)
+    private String statusCodeText;
+
+    @Column(name = "error_message", columnDefinition = "TEXT")
+    private String errorMessage;
+
+    // New VFD request fields
+    @Column(name = "fcode_token", columnDefinition = "TEXT")
+    private String fcodeToken;
+
+    @Column(name = "fcode", length = 100)
+    private String fcode;
+
+    @Column(name = "custid_type")
+    private Integer custidType;
+
+    // Complete request/response storage
+    @Column(name = "external_vfd_request", columnDefinition = "LONGTEXT")
+    private String externalVfdRequest;
+
+    @Column(name = "external_vfd_response", columnDefinition = "LONGTEXT")
+    private String externalVfdResponse;
+
+    // VFD status fields
+    @Column(name = "vfd_status", length = 50)
+    private String vfdStatus;
+
+    @Column(name = "vfd_http_status")
+    private Integer vfdHttpStatus;
+
     @OneToMany(mappedBy = "receipt", cascade = CascadeType.ALL, fetch = FetchType.LAZY, orphanRemoval = true)
     private List<VfdReceiptDetail> receiptDetails;
 }

@@ -12,12 +12,14 @@ import tz.co.itrust.vfd.entity.VfdReceipt;
 import tz.co.itrust.vfd.entity.VfdReceiptDetail;
 import tz.co.itrust.vfd.repository.VfdReceiptRepository;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.HashMap;
 import java.util.ArrayList;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Service
@@ -27,6 +29,7 @@ public class VfdService {
 
     private final RestTemplate restTemplate;
     private final VfdReceiptRepository receiptRepository;
+    private final ObjectMapper objectMapper;
 
     @Value("${vfd.power-vfd-url:http://41.222.92.81:8082/power-vfd-new/apis/web/auth/receiver}")
     private String powerVfdUrl;
@@ -43,6 +46,25 @@ public class VfdService {
     public VfdReceiptResponse processReceipt(VfdReceiptRequest request) {
         try {
             log.info("Processing VFD receipt request: {}", request.getCustinvoiceno());
+            
+            // Check if receipt already exists to prevent duplicate external VFD calls
+            Optional<VfdReceipt> existingReceipt = receiptRepository.findByCustinvoicenoAndVfdStatusAndRctvcodeIsNotNull(
+                request.getCustinvoiceno(), "success");
+            if (existingReceipt.isPresent()) {
+                VfdReceipt receipt = existingReceipt.get();
+                log.info("Receipt {} already exists with successful VFD data (ID: {}), returning cached response", 
+                    request.getCustinvoiceno(), receipt.getId());
+                return buildResponseFromExistingReceipt(receipt);
+            }
+            
+            // Check for any existing receipt (even failed ones) for logging purposes
+            Optional<VfdReceipt> anyExistingReceipt = receiptRepository.findByCustinvoiceno(request.getCustinvoiceno());
+            if (anyExistingReceipt.isPresent()) {
+                VfdReceipt receipt = anyExistingReceipt.get();
+                log.info("Receipt {} already exists (ID: {}) but with status: {}, will process fresh request", 
+                    request.getCustinvoiceno(), receipt.getId(), receipt.getVfdStatus());
+            }
+            
             validateRequest(request);
             VfdReceiptResponse vfdResponse = forwardToPowerVfd(request);
             
@@ -171,6 +193,16 @@ public class VfdService {
                     .map(VfdReceiptRequest.VfdInvoiceDetail::getAmt)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
 
+            // Store the complete external request and response
+            String externalRequest = null;
+            String externalResponse = null;
+            try {
+                externalRequest = objectMapper.writeValueAsString(request);
+                externalResponse = objectMapper.writeValueAsString(response);
+            } catch (Exception e) {
+                log.warn("Failed to serialize request/response: {}", e.getMessage());
+            }
+
             VfdReceipt receipt = VfdReceipt.builder()
                     .idate(request.getIdate())
                     .itime(request.getItime())
@@ -189,6 +221,24 @@ public class VfdService {
                     .vfdResponse(response != null ? response.toString() : null)
                     .qrCodePath(response != null ? response.getQrpath() : null)
                     .receiptNumber(response != null ? response.getVfdinvoicenum() : null)
+                    // New VFD response fields
+                    .rctvnum(response != null ? response.getRctvnum() : null)
+                    .rctvcode(response != null ? response.getRctvcode() : null)
+                    .znumber(response != null ? response.getZnumber() : null)
+                    .qrpath(response != null ? response.getQrpath() : null)
+                    .qrcodeUri(response != null ? response.getQrcode_uri() : null)
+                    .statusCodeText(response != null ? response.getStatusCodeText() : null)
+                    .errorMessage(response != null ? response.getErrorMessage() : null)
+                    // New VFD request fields
+                    .fcodeToken(fcodetoken)
+                    .fcode(fcode)
+                    .custidType(request.getCustidtype())
+                    // Complete request/response storage
+                    .externalVfdRequest(externalRequest)
+                    .externalVfdResponse(externalResponse)
+                    // VFD status fields
+                    .vfdStatus(response != null ? response.getStatus() : null)
+                    .vfdHttpStatus(response != null ? response.getStatusCode() : null)
                     .build();
 
             List<VfdReceiptDetail> details = request.getInvoiceDetails().stream()
@@ -226,5 +276,71 @@ public class VfdService {
         }
     }
 
+    // Enhanced query methods using new fields
+    public Optional<VfdReceipt> findByReceiptCode(String rctvcode) {
+        return receiptRepository.findByRctvcode(rctvcode);
+    }
+
+    public Optional<VfdReceipt> findByZNumber(String znumber) {
+        return receiptRepository.findByZnumber(znumber);
+    }
+
+    public List<VfdReceipt> findSuccessfulReceipts() {
+        return receiptRepository.findByVfdStatusAndVfdHttpStatus("success", 200);
+    }
+
+    public List<VfdReceipt> findErrorReceipts() {
+        return receiptRepository.findByVfdStatus("error");
+    }
+
+    public List<VfdReceipt> findReceiptsByDateRange(String startDate, String endDate) {
+        return receiptRepository.findByIdateBetween(startDate, endDate);
+    }
+
+    public List<VfdReceipt> findReceiptsByStatus(String status) {
+        return receiptRepository.findByVfdStatusOrderByCreatedAtDesc(status);
+    }
+
+    public Optional<VfdReceipt> findByReceiptCodeOrZNumber(String rctvcode, String znumber) {
+        return receiptRepository.findByRctvcodeOrZnumber(rctvcode, znumber);
+    }
+
+    /**
+     * Check if a receipt with given custinvoiceno already exists and has successful VFD data
+     */
+    public boolean isDuplicateReceipt(String custinvoiceno) {
+        return receiptRepository.findByCustinvoicenoAndVfdStatusAndRctvcodeIsNotNull(custinvoiceno, "success").isPresent();
+    }
+
+    /**
+     * Get cached receipt data for a given custinvoiceno
+     */
+    public Optional<VfdReceiptResponse> getCachedReceipt(String custinvoiceno) {
+        Optional<VfdReceipt> receipt = receiptRepository.findByCustinvoicenoAndVfdStatusAndRctvcodeIsNotNull(custinvoiceno, "success");
+        return receipt.map(this::buildResponseFromExistingReceipt);
+    }
+
+    /**
+     * Build VfdReceiptResponse from existing receipt data (cached response)
+     */
+    private VfdReceiptResponse buildResponseFromExistingReceipt(VfdReceipt receipt) {
+        log.info("Building cached response for receipt: {} (ID: {})", receipt.getCustinvoiceno(), receipt.getId());
+        
+        return VfdReceiptResponse.builder()
+                .rctvnum(receipt.getRctvnum())
+                .rctvcode(receipt.getRctvcode())
+                .znumber(receipt.getZnumber())
+                .vfdinvoicenum(receipt.getReceiptNumber() != null ? receipt.getReceiptNumber() : receipt.getCustinvoiceno())
+                .idate(receipt.getIdate())
+                .itime(receipt.getItime())
+                .senttime(receipt.getCreatedAt() != null ? receipt.getCreatedAt().toString() : receipt.getItime())
+                .message("Success (cached)")
+                .status("success")
+                .qrpath(receipt.getQrpath())
+                .qrcode_uri(receipt.getQrcodeUri())
+                .statusCodeText(receipt.getStatusCodeText() != null ? receipt.getStatusCodeText() : "HTTP_OK")
+                .statusCode(receipt.getVfdHttpStatus() != null ? receipt.getVfdHttpStatus() : 200)
+                .build();
+    }
 
 } 
