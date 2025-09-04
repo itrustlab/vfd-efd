@@ -21,8 +21,10 @@ Virtual Financial Data (VFD) microservice for iTrust platform.
 ### Database Setup
 
 1. Create database `itrust_service`
-2. Run `database-init.sql` script
+2. Flyway will automatically run migrations on startup
 3. Update database credentials in `application.properties`
+
+**Note**: The service now uses Flyway for database migrations. The initial schema will be created automatically when the service starts for the first time.
 
 ### Run Service
 
